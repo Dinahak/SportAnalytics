@@ -16,6 +16,9 @@ Model: a random forest regressor (scikit-learn) on six predictors that are all k
 Uncertainty: the 80% and 95% prediction ranges come from the out-of-fold residuals of repeated cross-validation on the
 model's own training rows (an empirical, split-conformal style interval), so they are checked on data the model had
 not seen. The backtest (step 10) tests whether they hold.
+Week 11: the residual distribution can be set per group (goalkeepers / outfield players, see set_group_ranges), because
+the Week 10 evaluation showed that goalkeepers' forecast errors are about half as large as outfield players'. With no
+groups set the model behaves exactly as in Week 10.
 
 Explanations: SHAP values (TreeExplainer). For any one prediction the SHAP values of the predictors add up exactly to
 (prediction - average prediction over the training rows). Overall importance = mean |SHAP| over the training rows.
@@ -41,6 +44,7 @@ GROUPS = {
     "Age": ["age"],
     "Position": [f"pos_{p}" for p in POSITIONS],
 }
+RANGE_GROUPS = ("GK", "Outfield")      # Week 11: goalkeepers pass far less and far more steadily than outfield players
 SEED = 20251003
 QUANTILE_GRID = sorted({round(k / 100, 2) for k in range(1, 100)} | {0.025, 0.975})
 
@@ -115,21 +119,38 @@ class PerformanceForecastModel:
         self.age_min, self.age_max = float(table.age.min()), float(table.age.max())
         self.background = X.copy()
         self._explainer = None
+        self.group_q = None            # Week 11: set_group_ranges() switches the ranges from pooled to per-group
         return self
+
+    def set_group_ranges(self, group_q):
+        """group_q: {"GK": {quantile: residual}, "Outfield": {...}} (residual = actual - forecast, from out-of-fold forecasts).
+        Once set, the prediction ranges and probabilities use the residual distribution of the player's own group."""
+        self.group_q = {g: {float(k): v for k, v in q.items()} for g, q in group_q.items()} if group_q else None
+        return self
+
+    @staticmethod
+    def group_of(position):
+        return "GK" if position == "GK" else "Outfield"
+
+    def _q(self, group=None):
+        return self.group_q[group] if (self.group_q and group in self.group_q) else self.resid_q
 
     def predict_frame(self, X):
         """X: DataFrame with FEATURES. Returns a DataFrame with the forecast and its ranges."""
         p = self.est.predict(X[FEATURES])
+        qs = [self._q("GK" if g else "Outfield") for g in X["pos_GK"].values]    # pooled quantiles when no groups are set
         out = pd.DataFrame({"forecast": p,
-                            "lo80": np.maximum(0, p + self.resid_q[0.10]), "hi80": p + self.resid_q[0.90],
-                            "lo95": np.maximum(0, p + self.resid_q[0.025]), "hi95": p + self.resid_q[0.975]})
+                            "lo80": np.maximum(0, p + np.array([q[0.10] for q in qs])), "hi80": p + np.array([q[0.90] for q in qs]),
+                            "lo95": np.maximum(0, p + np.array([q[0.025] for q in qs])), "hi95": p + np.array([q[0.975] for q in qs])})
         out["extrapolated"] = ((X.age < self.age_min) | (X.age > self.age_max)).astype(int).values
         return out
 
-    def prob_at_least(self, forecast, level):
-        """Chance that the actual value is at least `level`, from the cross-validated residual distribution."""
-        q = np.array(sorted(self.resid_q))
-        r = np.array([self.resid_q[k] for k in q])
+    def prob_at_least(self, forecast, level, group=None):
+        """Chance that the actual value is at least `level`, from the cross-validated residual distribution
+        (of the player's group, "GK" or "Outfield", when Week 11 group ranges are set)."""
+        rq = self._q(group)
+        q = np.array(sorted(rq))
+        r = np.array([rq[k] for k in q])
         # P(forecast + residual >= level) = 1 - F(level - forecast); F interpolated on the residual quantile grid
         return float(1 - np.interp(level - forecast, r, q, left=0.0, right=1.0))
 

@@ -1,0 +1,17 @@
+kpi,check,result,detail
+KPI 1,Latest valuation was published before the forecast origin,PASS,value_available_ts < forecast_origin for every row
+KPI 1,Season statistics were published before the forecast origin,PASS,stats_available_ts < forecast_origin for every row that has statistics
+KPI 1,Target valuation is dated after the forecast origin,PASS,target_value_date > forecast_origin for every row
+KPI 1,Predictors recomputed from the raw valuation history match the model table,PASS,"0 mismatches in 'value now', 0 in 'value one year ago', out of 747 rows"
+KPI 1,The target valuation was not yet published at the origin,PASS,0 rows where it was
+KPI 1,"Age is measured at the forecast origin, not at the outcome date",PASS,largest difference 0.0000 years
+KPI 1,Development outcomes were already known when the backtest forecasts were made,PASS,last development outcome 2025-01-01 <= first backtest origin 2025-06-21
+KPI 1,"The chosen model uses only value now, age and last year's change (no statistics, no asking price)",PASS,model terms: 20 age points + momentum
+KPI 1,INFO: players in both development and backtest,INFO,"186 of 195 backtest players also appear in development. This is how forecasting works (their earlier outcomes were known), and cross-validation splits by player so it cannot inflate the development scores."
+KPI 2,Last season's statistics were published before the June run,PASS,0 violations in 719 rows
+KPI 2,The season-before statistics were published before the June run,PASS,0 violations
+KPI 2,The target season's statistics were NOT yet published at the June run,PASS,0 rows where they were
+KPI 2,Age is the age at the start of the forecast season (known from the date of birth),PASS,largest difference 0.007 years
+KPI 2,Development outcomes were already known when the backtest forecasts were made,PASS,"2024 season statistics were published on 1 June 2025, before the 21 June 2025 backtest run"
+KPI 2,"The model never sees the target season, the Week 5 pass figures or the asking price",PASS,"predictors: passes_last, passes_before, has_before, carries_last, minutes_last, age, pos_DEF, pos_FWD, pos_GK, pos_MID"
+KPI 2,FINDING: carries imputation uses position medians from all rows,WARN,"Week 10 filled 146 missing carries values with medians taken over development, backtest and live rows (80 of them in backtest/live rows). Only predictor values are involved, never outcomes, so it is a minor leak of distribution information. Effect on the backtest is measured below."

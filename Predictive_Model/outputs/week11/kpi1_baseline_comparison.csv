@@ -1,0 +1,4 @@
+model,cv_rmse_log,cv_typical_error_pct,cv_within_20_pct,cv_bias_log,cv_overpay_risk_pct,backtest_rmse_log,backtest_typical_error_pct,backtest_within_20_pct,backtest_bias_log,backtest_overpay_risk_pct,backtest_rmse_gain_vs_this_baseline_ci95,cv_coverage_80_pct,backtest_coverage_80_pct
+No change (value stays the same),0.417,20.9537,47.7273,0.049,25.2841,0.4878,28.6093,38.9744,0.0458,28.7179,0.211 (0.134 to 0.289),,
+Week 6 rule (fixed age adjustment),0.3756,17.7768,53.125,0.0363,23.5795,0.4376,22.5822,41.5385,0.042,27.6923,0.161 (0.087 to 0.237),,
+Week 10 model (age curve + momentum),0.2121,12.6658,69.8864,-0.0018,16.4773,0.2767,12.0591,72.3077,0.0574,11.7949,,79.8295,80.0

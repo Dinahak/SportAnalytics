@@ -1,0 +1,17 @@
+segment_type,segment,n,bias,rmse,mae,coverage_80_pct,small_sample
+position,DEF,79,-0.1224,13.3637,9.981,75.1055,False
+position,FWD,82,-1.7688,13.0417,8.7205,81.7073,False
+position,GK,75,1.9056,6.1493,4.6506,95.1111,False
+position,MID,98,-0.1088,13.8114,10.2741,68.3673,False
+age_band,Under 22,107,1.1185,9.4681,7.0081,83.1776,False
+age_band,22 to 25,94,-2.0373,15.1987,10.3714,72.695,False
+age_band,26 to 29,77,-0.2994,13.0162,9.4256,74.4589,False
+age_band,30 and over,56,1.2933,9.6678,7.2981,89.2857,False
+minutes_band,"900 to 1,500",88,-0.649,13.1614,9.4535,75.0,False
+minutes_band,"1,500 to 2,200",113,0.8868,11.7768,8.5995,80.531,False
+minutes_band,"Over 2,200",133,-0.4928,11.8479,7.9367,80.9524,False
+history,One season of data,175,0.6411,10.4138,7.5147,83.2381,False
+history,Two seasons of data,159,-0.8467,13.8744,9.7117,74.8428,False
+passing_level,Low passer (<30),84,-0.0742,7.8828,4.6929,94.8413,False
+passing_level,Mid passer (30-50),174,-0.0467,13.0183,9.2002,77.9693,False
+passing_level,High passer (>50),76,-0.1063,13.991,11.3711,64.9123,False

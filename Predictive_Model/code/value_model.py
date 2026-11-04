@@ -17,14 +17,19 @@ Uncertainty:
   confidence interval  = uncertainty about the AVERAGE player with these inputs (coefficient uncertainty only)
   prediction interval  = uncertainty about THIS player's actual value (coefficient uncertainty + residual spread)
 Both use the Student t distribution with n - p degrees of freedom.
+Week 11: outside the ages seen in training both standard errors are multiplied by `extrap_inflation` (default 1.0, so a model
+saved in Week 10 behaves exactly as before). The point forecast is not changed.
 """
 import numpy as np
 from scipy import stats
 
 
 class ValueForecastModel:
-    def __init__(self, knot_step=1, use_momentum=True, use_level=False):
+    def __init__(self, knot_step=1, use_momentum=True, use_level=False, extrap_inflation=1.0):
         self.knot_step, self.use_momentum, self.use_level = knot_step, use_momentum, use_level
+        # Week 11: for a player older/younger than anyone in the training data the standard errors are multiplied by
+        # this factor (estimated by an extrapolation stress test in step 11). 1.0 = the Week 10 behaviour.
+        self.extrap_inflation = extrap_inflation
 
     # ------------------------------------------------------------------ design matrix
     def _design(self, value_now, age, prev_value):
@@ -77,9 +82,11 @@ class ValueForecastModel:
         change = X @ self.coef
         var_mean = np.einsum("ij,jk,ik->i", X, self.cov, X)
         sigma2 = np.where(np.isnan(prev_value), self.sigma2_no_history, self.sigma2_history)
+        extrapolated = ((age < self.age_min) | (age > self.age_max)).astype(int)
+        inflate = np.where(extrapolated == 1, self.extrap_inflation, 1.0)      # Week 11: wider range outside the trained ages
         return {"log_now": np.log(value_now), "log_change": change, "log_pred": np.log(value_now) + change,
-                "se_mean": np.sqrt(var_mean), "se_pred": np.sqrt(var_mean + sigma2), "df": self.df,
-                "extrapolated": ((age < self.age_min) | (age > self.age_max)).astype(int)}
+                "se_mean": np.sqrt(var_mean) * inflate, "se_pred": np.sqrt(var_mean + sigma2) * inflate, "df": self.df,
+                "extrapolated": extrapolated}
 
     def age_curve(self, ages):
         """Expected 12-month change (log scale) by age for a player with flat momentum, with its standard error."""
@@ -94,11 +101,12 @@ class ValueForecastModel:
                 "age_min": self.age_min, "age_max": self.age_max, "knots": self.knots.tolist(),
                 "level_centre": self.level_centre, "names": self.names, "coef": self.coef.tolist(),
                 "cov": self.cov.tolist(), "sigma2_history": self.sigma2_history,
-                "sigma2_no_history": self.sigma2_no_history, "n": self.n, "p": self.p, "df": self.df}
+                "sigma2_no_history": self.sigma2_no_history, "n": self.n, "p": self.p, "df": self.df,
+                "extrap_inflation": self.extrap_inflation}
 
     @classmethod
     def from_dict(cls, d):
-        m = cls(d["knot_step"], d["use_momentum"], d["use_level"])
+        m = cls(d["knot_step"], d["use_momentum"], d["use_level"], d.get("extrap_inflation", 1.0))
         for k in ("age_min", "age_max", "level_centre", "names", "sigma2_history", "sigma2_no_history", "n", "p", "df"):
             setattr(m, k, d[k])
         m.knots, m.coef, m.cov = np.array(d["knots"]), np.array(d["coef"]), np.array(d["cov"])

@@ -1,0 +1,5 @@
+method,set,midfielders,actually_reach_target,correct_call_pct,of_players_called_fit_how_many_really_fit_pct,of_real_fits_how_many_found_pct
+Week 10 model,development CV,98,25,73.4694,46.6667,28.0
+Week 10 model,backtest,53,13,77.3585,60.0,23.0769
+No change (last season),development CV,98,25,69.3878,39.1304,36.0
+No change (last season),backtest,53,13,71.6981,42.8571,46.1538

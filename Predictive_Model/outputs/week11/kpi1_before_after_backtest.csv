@@ -1,0 +1,3 @@
+version,coverage_80_all_pct,coverage_80_older_than_training_pct,coverage_80_age_seen_pct,coverage_95_all_pct,coverage_95_older_than_training_pct,coverage_95_age_seen_pct,median_80_range_width_pct_of_forecast_age_seen,median_80_range_width_pct_of_forecast_older,mean_80_interval_score_older,typical_error_pct,rmse_log,players_older_than_training
+Week 10 model,80.0,0.0,84.7826,91.7949,18.1818,96.1957,50.6598,56.3473,1034783.8592,12.0591,0.2767,11
+"Week 11 retained model (point forecast unchanged, wider range outside trained ages)",82.0513,36.3636,84.7826,93.8462,54.5455,96.1957,50.6598,130.8255,810638.5641,12.0591,0.2767,11

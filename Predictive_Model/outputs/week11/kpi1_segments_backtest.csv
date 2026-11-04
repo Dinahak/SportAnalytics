@@ -1,0 +1,17 @@
+segment_type,segment,n,bias,rmse,typical_abs_pct_error,coverage_80_pct,small_sample
+age_band,Under 19,38,0.0247,0.1625,10.6663,84.2105,False
+age_band,19 to 21,32,0.0901,0.1856,14.7751,87.5,False
+age_band,22 to 25,40,0.0266,0.1856,9.4557,82.5,False
+age_band,26 to 29,42,-0.0357,0.1878,11.07,88.0952,False
+age_band,30 and over,43,0.1816,0.4814,16.2644,60.4651,False
+position,DEF,51,0.0634,0.2445,14.2945,80.3922,False
+position,FWD,46,0.0759,0.2786,9.2529,78.2609,False
+position,GK,44,0.0832,0.3704,11.5386,79.5455,False
+position,MID,54,0.015,0.2052,11.8444,81.4815,False
+value_tier,Low value,68,0.1325,0.3398,12.2867,75.0,False
+value_tier,Mid value,68,0.0411,0.2137,9.5041,86.7647,False
+value_tier,High value,59,-0.0103,0.2594,16.1733,77.9661,False
+history,Has valuation one year ago,186,0.0584,0.2794,11.4603,80.6452,False
+history,No earlier valuation,9,0.0365,0.212,14.9834,66.6667,True
+age_vs_training,Age seen in training,184,0.0114,0.1812,11.0658,84.7826,False
+age_vs_training,Older than any development player,11,0.8274,0.8989,56.2762,0.0,True

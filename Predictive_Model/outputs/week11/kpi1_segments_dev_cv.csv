@@ -1,0 +1,15 @@
+segment_type,segment,n,bias,rmse,typical_abs_pct_error,coverage_80_pct,small_sample
+age_band,Under 19,68,0.0113,0.1988,12.4435,84.8039,False
+age_band,19 to 21,58,-0.027,0.2137,10.1979,80.4598,False
+age_band,22 to 25,95,0.006,0.2229,14.4378,77.193,False
+age_band,26 to 29,78,-0.0009,0.2202,13.4724,76.9231,False
+age_band,30 and over,53,-0.0064,0.1873,10.5289,81.761,False
+position,DEF,86,-0.0019,0.1869,10.5687,86.4341,False
+position,FWD,84,-0.0079,0.2206,13.0891,76.5873,False
+position,GK,80,-0.0017,0.2016,10.8371,80.0,False
+position,MID,102,0.0031,0.2291,13.9571,76.7974,False
+value_tier,Low value,117,0.021,0.2178,12.5613,78.6325,False
+value_tier,Mid value,117,-0.0078,0.2054,12.5743,79.7721,False
+value_tier,High value,118,-0.0186,0.2101,13.0061,81.0734,False
+history,Has valuation one year ago,166,0.0064,0.1973,9.9007,83.3333,False
+history,No earlier valuation,186,-0.0092,0.2228,13.9958,76.7025,False

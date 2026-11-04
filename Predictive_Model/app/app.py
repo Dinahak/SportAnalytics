@@ -9,7 +9,9 @@ Screens
   3. Forecast accuracy    how well each model predicted outcomes it had not seen (backtests)
   4. Explain a forecast   overall predictor importance vs. the contributions to one player's forecast (SHAP)
   5. What-if analysis     change a player's predictors; the model re-predicts against a clearly marked baseline and
-                          writes a summary of every scenario
+                          writes a summary of every scenario. Week 11: input checks, which inputs the club can change,
+                          a side-by-side baseline / scenario table and a pinned second scenario
+  6. Validation and limits  (Week 11) how the models were tested, against what baseline, where they fail, what was improved
 
 KPI 1  Market value at the next yearly valuation   code/value_model.py        (steps 07-09)
 KPI 2  Passes per 90 minutes next season           code/performance_model.py  (step 10)
@@ -27,10 +29,11 @@ import streamlit as st
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "code"))
 import config as C  # noqa: E402
+import input_checks as IC  # noqa: E402
 from value_model import ValueForecastModel, interval, point, price_for_confidence, prob_at_least  # noqa: E402
 import performance_model as PM  # noqa: E402
-from explain import (NOT_CAUSAL, VALUE_PREDICTORS, ValueExplainer, pct_effect, perf_sentences, perf_summary,  # noqa: E402
-                     value_sentences, value_summary)
+from explain import (DECISION_LEVERS, NOT_CAUSAL, VALUE_PREDICTORS, ValueExplainer, pct_effect, perf_comparison,  # noqa: E402
+                     perf_sentences, perf_summary, roles_table, value_comparison, value_sentences, value_summary)
 
 # ------------------------------------------------------------------ colours (one validated palette, light surface)
 BLUE, ORANGE, AQUA = "#2a78d6", "#eb6834", "#1baf7a"
@@ -66,6 +69,13 @@ def load():
         "pcv": pd.read_csv(o / "performance_model_cv.csv"),
         "psum": json.loads((o / "performance_summary.json").read_text()),
         "pjson": json.loads((m / "performance_model.json").read_text()),
+        # ---- Week 11
+        "w11set": json.loads((m / "week11_settings.json").read_text()),
+        "w11sum": json.loads((o / "week11" / "week11_summary.json").read_text()),
+        "w11": {n: pd.read_csv(o / "week11" / f"{n}.csv") for n in (
+            "split_design", "leakage_checks", "kpi1_baseline_comparison", "kpi2_baseline_comparison", "kpi1_segments_backtest",
+            "kpi2_segments_backtest", "kpi1_improvements", "kpi2_improvements", "kpi1_before_after_backtest", "kpi2_before_after_backtest",
+            "kpi1_price_hit_rate", "kpi2_target_reach", "kpi2_model_choice_cv")},
     }
     cases = d["case"].merge(d["run"].drop(columns=["player_id", "asking_price_eur"]), on="case_id") \
         .merge(d["cf"].drop(columns=["player_id", "run_id", "asking_price_eur", "screening_status"]), on="case_id")
@@ -78,7 +88,11 @@ def load():
 @st.cache_resource
 def load_models():
     read = lambda name: ValueForecastModel.from_dict(json.loads((C.MODEL / name).read_text()))
-    return {C.BACKTEST_ORIGIN: read("value_model_june2025.json"), C.LIVE_ORIGIN: read("value_model.json")}
+    w11 = json.loads((C.MODEL / "week11_settings.json").read_text())["value"]
+    models = {C.BACKTEST_ORIGIN: read("value_model_june2025.json"), C.LIVE_ORIGIN: read("value_model.json")}
+    models[C.BACKTEST_ORIGIN].extrap_inflation = w11["extrap_inflation_june2025_model"]      # Week 11: wider range outside trained ages
+    models[C.LIVE_ORIGIN].extrap_inflation = w11["extrap_inflation_final_model"]
+    return models
 
 
 @st.cache_resource
@@ -86,9 +100,14 @@ def load_perf_models():
     """KPI 2 models, refitted from the saved training table exactly as step 10 fitted them (same rows, order and seed)."""
     t, j = D["pt"], D["pjson"]
     dev, bt = t[t.split == "development"].reset_index(drop=True), t[t.split == "backtest"].reset_index(drop=True)
-    return {C.BACKTEST_ORIGIN: PM.PerformanceForecastModel(j["name"], j["params"]).fit(dev, j["resid_quantiles_june2025"]),
-            C.LIVE_ORIGIN: PM.PerformanceForecastModel(j["name"], j["params"]).fit(pd.concat([dev, bt], ignore_index=True),
-                                                                                 j["resid_quantiles_final"])}
+    models = {C.BACKTEST_ORIGIN: PM.PerformanceForecastModel(j["name"], j["params"]).fit(dev, j["resid_quantiles_june2025"]),
+              C.LIVE_ORIGIN: PM.PerformanceForecastModel(j["name"], j["params"]).fit(pd.concat([dev, bt], ignore_index=True),
+                                                                                   j["resid_quantiles_final"])}
+    w11 = D["w11set"]["performance"]                                    # Week 11: separate ranges for goalkeepers and outfield players
+    if w11["group_ranges_adopted"]:
+        models[C.BACKTEST_ORIGIN].set_group_ranges(w11["group_resid_quantiles_june2025"])
+        models[C.LIVE_ORIGIN].set_group_ranges(w11["group_resid_quantiles_final"])
+    return models
 
 
 @st.cache_resource
@@ -102,6 +121,12 @@ D, MODELS = load(), load_models()
 PMODELS, VEX = load_perf_models(), load_value_explainers()
 BT = D["summary"]["backtest"]
 PBT = D["psum"]["backtest"]
+REF = IC.reference_ranges(D["vt"], D["pt"])                              # plausible ranges for the input checks (from training data)
+W11S = D["w11sum"]
+_pb = D["pbp"].assign(group=lambda d: np.where(d.position == "GK", "GK", "Outfield"))
+PBT_MAE_GROUP = _pb.groupby("group").error.apply(lambda e: float(e.abs().mean())).to_dict()      # typical error by group (Week 10 backtest)
+_tr = D["w11"]["kpi2_target_reach"]
+RECALL_PCT = float(_tr[(_tr.method == "Week 10 model") & (_tr.set == "backtest")].of_real_fits_how_many_found_pct.iloc[0])
 
 
 # ------------------------------------------------------------------ helpers
@@ -438,6 +463,10 @@ def whatif_value():
     target = f"January {year + 1}"
     st.caption(f"Change the predictors or the asking price and the model re-predicts the value at the {target} valuation, with its "
                f"uncertainty. Model fitted on {model.n} past forecasts, ages {model.age_min:.1f} to {model.age_max:.1f}.")
+    hit = D["w11"]["kpi1_price_hit_rate"].set_index("stated_confidence_pct").actual_value_at_or_above_price_pct
+    st.info(f"**How much to trust this.** In the 2025 test a forecast was typically {BT['median_abs_pct_error']:.0f}% away from the actual value, "
+            f"and the 'pay no more than' price marked 75% sure held for {hit[75.0]:.0f}% of players. It is least reliable for players older than "
+            f"{model.age_max:.0f} (marked 'Do not rely'). Details: screen *6. Validation and limits*.", icon=":material/verified:")
 
     ids = {"New player (enter the values yourself)": NEW}
     ids.update({f"Case {cid} · Player {r.player_id} · {r.screening_status.capitalize()}": int(cid) for cid, r in cases.iterrows()})
@@ -464,24 +493,37 @@ def whatif_value():
         reset()
         st.session_state.wi_loaded = st.session_state.wi_label
 
+    with st.expander("Which inputs can I change, and which can't I?"):
+        st.markdown(DECISION_LEVERS)
+        st.dataframe(roles_table("KPI 1"), hide_index=True, width="stretch")
     inp, out = st.columns([1, 2.7], gap="large")
     with inp:
         st.selectbox("Start from", list(ids), key="wi_label")
         cid = ids[st.session_state.wi_label]
         base_in = recorded(cid)
         st.markdown("**Predictors**")
-        st.number_input("Market value now (EUR)", min_value=100.0, max_value=50_000_000.0, step=10_000.0, format="%.0f", key="wi_value",
+        st.number_input("Market value now (EUR) · external", min_value=100.0, max_value=50_000_000.0, step=10_000.0, format="%.0f", key="wi_value",
                         help="Latest public valuation before the prediction run.")
         st.toggle("Player has a valuation from one year ago", key="wi_hist")
-        st.number_input("Market value one year ago (EUR)", min_value=100.0, max_value=50_000_000.0, step=10_000.0, format="%.0f",
+        st.number_input("Market value one year ago (EUR) · fixed", min_value=100.0, max_value=50_000_000.0, step=10_000.0, format="%.0f",
                         key="wi_prev", disabled=not st.session_state.wi_hist,
                         help="The model expects part of last year's rise or fall to reverse.")
-        st.slider("Age at the prediction run", 16.0, 36.0, step=0.1, format="%.1f", key="wi_age")
+        st.slider("Age at the prediction run · fixed", 16.0, 36.0, step=0.1, format="%.1f", key="wi_age")
         st.markdown("**Decision input**")
-        st.number_input("Asking price (EUR)", min_value=100.0, max_value=50_000_000.0, step=10_000.0, format="%.0f", key="wi_ask")
+        st.number_input("Asking price (EUR) · you decide", min_value=100.0, max_value=50_000_000.0, step=10_000.0, format="%.0f", key="wi_ask",
+                        help="The asking price is what the forecast is compared with. It is not used to predict the player's value.")
+        # Week 11 user test: the participant did not see why the price moved 'Chance fee holds' but not the forecast
+        st.caption("Changing the asking price updates the chance that the player's future value will cover the fee. "
+                   "It does not change the predicted market value.")
         st.button("Reset to the recorded values", on_click=reset, disabled=cid == NEW)
 
     s = st.session_state
+    issues = IC.check_value_inputs(s.wi_value, s.wi_prev if s.wi_hist else None, s.wi_hist, s.wi_age, s.wi_ask, REF,
+                                   (model.age_min, model.age_max), nd.budget_allocated_eur)
+    if IC.verdict(issues) == "block":                      # impossible or contradictory inputs: no forecast
+        with out:
+            show_blocked(issues)
+        return
     now = forecast(model, s.wi_value, s.wi_age, s.wi_prev if s.wi_hist else None, s.wi_ask)
     changed = cid != NEW and (s.wi_hist != base_in["hist"] or any(abs(s[f"wi_{k}"] - base_in[k]) > 1e-6 for k in ("value", "prev", "age", "ask")))
     base = forecast(model, base_in["value"], base_in["age"], base_in["prev"] if base_in["hist"] else None, base_in["ask"]) if cid != NEW else None
@@ -491,9 +533,8 @@ def whatif_value():
             r = cases.loc[cid]
             st.markdown(f"**Player {r.player_id}** · screening status **{r.screening_status}** ({r.status_reason}) · "
                         f"TSS {r.tactical_score:.0f} · RAPF {'n/a' if pd.isna(r.risk_forecast) else format(r.risk_forecast, '.0f')} · risk {r.risk_band}")
-        if now["extrapolated"]:
-            st.error(f"Age {s.wi_age:.1f} is outside the ages the model has seen ({model.age_min:.1f} to {model.age_max:.1f}). The forecast "
-                     "holds the age effect at the nearest age it knows and the range is too narrow. Do not rely on it.", icon=":material/error:")
+        verdict = IC.verdict(issues, bool(now["extrapolated"]))
+        show_issues(issues, verdict)
 
         def delta(key, fmt, smallest):
             """Change against the recorded values; nothing is shown when it rounds to zero."""
@@ -512,6 +553,21 @@ def whatif_value():
 
         if changed:
             st.caption("The small arrows show the change against the recorded values.")
+
+        # ---- Week 11: baseline and scenario side by side (with an optional pinned second scenario)
+        cur_raw = {"value": s.wi_value, "prev": s.wi_prev, "hist": s.wi_hist, "age": s.wi_age, "ask": s.wi_ask}
+        ex_cur = {"action": bid_rule(s.wi_ask, now["forecast"], nd.budget_allocated_eur)[0], "reliability": VERDICT_WORD[verdict]}
+        ex_cur["base"] = None
+        if base:
+            b_issues = IC.check_value_inputs(base_in["value"], base_in["prev"] if base_in["hist"] else None, base_in["hist"], base_in["age"],
+                                             base_in["ask"], REF, (model.age_min, model.age_max))
+            ex_cur["base"] = {"action": bid_rule(base_in["ask"], base["forecast"], nd.budget_allocated_eur)[0],
+                              "reliability": VERDICT_WORD[IC.verdict(b_issues, bool(base["extrapolated"]))]}
+        st.markdown("**Baseline and scenario side by side**")
+        pin = pin_controls("pin_v", cid, year, f"saved {pd.Timestamp.now():%H:%M}", cur_raw, now, ex_cur)
+        st.dataframe(value_comparison(cur_raw, base_in if base else None, slim(now), slim(base) if base else None, eur, ex_cur, pinned=pin),
+                     hide_index=True, width="stretch")
+        st.caption("Differences are between two model predictions. They are not proven effects and not guaranteed outcomes.")
 
         # ---- ranges against the asking price
         moved = changed and (s.wi_hist != base_in["hist"] or any(abs(s[f"wi_{k}"] - base_in[k]) > 1e-6 for k in ("value", "prev", "age")))
@@ -552,7 +608,9 @@ def whatif_value():
                     "Age": f"{i['age']:.1f}", "Asking price": eur(i["ask"])}
         cur_in = {"value": s.wi_value, "prev": s.wi_prev, "hist": s.wi_hist, "age": s.wi_age, "ask": s.wi_ask}
         act_now, _, _ = bid_rule(s.wi_ask, now["forecast"], nd.budget_allocated_eur)
-        extras = {"action": act_now,
+        extras = {"action": act_now, "verdict": verdict, "cautions": [i.message for i in issues if i.level == "caution"],
+                  "typical_error_pct": BT["median_abs_pct_error"], "coverage_80": BT["coverage_80"],
+                  "ask_now": s.wi_ask, "ask_base": base_in["ask"],
                   "range_split": bid_rule(s.wi_ask, now["lo80"], nd.budget_allocated_eur)[0] != bid_rule(s.wi_ask, now["hi80"], nd.budget_allocated_eur)[0]}
         if base is not None:
             extras["base_action"] = bid_rule(base_in["ask"], base["forecast"], nd.budget_allocated_eur)[0]
@@ -641,6 +699,60 @@ def whatif_value():
                     "95% low": "lo95", "95% high": "hi95", "Chance worth at least asking price %": "prob"}
             tab = pd.DataFrame({name: {c: (100 * f[k] if k == "prob" else f[k]) for c, k in cols.items()} for name, f in rows}).round(1)
             st.dataframe(tab, width="stretch")
+
+
+# ====================================================================== shared: input checks, comparison helpers (Week 11)
+VERDICT_WORD = {"ok": "Normal", "caution": "Use with caution", "do_not_rely": "Do not rely", "block": "Not forecast"}
+
+
+def slim(f):
+    """The few numbers of a forecast that the comparison table and the pinned scenario need."""
+    return {k: f[k] for k in ("forecast", "change_pct", "lo80", "hi80", "prob", "p_target") if k in f}
+
+
+def show_blocked(issues):
+    st.error("**This scenario cannot be forecast.** The inputs are impossible or contradict each other, so the tool does not guess.",
+             icon=":material/block:")
+    for i in issues:
+        if i.level == "block":
+            st.markdown(f"- **{' / '.join(i.fields)}:** {i.message} *{i.handling}*")
+    st.caption(IC.HANDLING_POLICY)
+
+
+def show_issues(issues, verdict):
+    """Cautions and notes for a scenario that was forecast, plus the one-line reliability label."""
+    cautions, notes = [i for i in issues if i.level == "caution"], [i for i in issues if i.level == "note"]
+    if verdict == "do_not_rely":
+        st.error("**Do not rely on this forecast.** " + " ".join(i.message for i in cautions), icon=":material/error:")
+    elif verdict == "caution":
+        st.warning("**Use with caution.** " + " ".join(i.message for i in cautions), icon=":material/warning:")
+    for i in notes:
+        st.info(i.message, icon=":material/info:")
+    if cautions:
+        with st.expander("What the tool did about this"):
+            for i in cautions:
+                st.markdown(f"- **{' / '.join(i.fields)}:** {i.handling}")
+            st.caption(IC.HANDLING_POLICY)
+    why = IC.VERDICT_TEXT[verdict].split(": ", 1)[1]
+    st.caption(f"Reliability of this scenario: **{VERDICT_WORD[verdict]}**. {why[0].upper() + why[1:]}")
+
+
+def pin_controls(key, cid, year, label, cur_raw, now, extras):
+    """'Pin this scenario' keeps one scenario so a second one can be compared with it and with the baseline."""
+    pin = st.session_state.get(key)
+    pin = pin if pin and pin["case"] == cid and pin["year"] == year else None
+    a, b, _ = st.columns([1.3, 1, 3])
+    if a.button("Pin this scenario to compare", key=f"{key}_btn", disabled=cid == NEW,
+                help="Keeps this scenario as an extra column, so you can change the inputs again and compare two scenarios with the baseline."):
+        st.session_state[key] = {"case": cid, "year": year, "label": label, "cur": dict(cur_raw), "now": slim(now), "extras": dict(extras)}
+        st.rerun()
+    # Week 11 user test: the participant hesitated at the Pin button, so the steps are spelled out
+    st.caption("To compare two scenarios: set up scenario A and press **Pin**, then change the inputs for scenario B. "
+               "The table then shows the baseline, the pinned scenario A and the current scenario B side by side.")
+    if pin and b.button("Clear pin", key=f"{key}_clear"):
+        st.session_state.pop(key)
+        st.rerun()
+    return pin
 
 
 # ====================================================================== shared: contributions chart, summary box, log
@@ -882,6 +994,9 @@ def whatif_perf():
     tgt = float(nd.target_passes_p90)
     st.caption(f"Forecast of passes per 90 in the {year}/{str(year + 1)[2:]} season. Model fitted on {pm.n} player-seasons, "
                f"ages {pm.age_min:.1f} to {pm.age_max:.1f}. Target style for {nd.need_code}: {tgt:.0f} passes per 90.")
+    st.info(f"**How much to trust this.** In the 2025 test a forecast was typically {PBT['mae']:.1f} passes per 90 away (goalkeepers {PBT_MAE_GROUP['GK']:.1f}, "
+            f"outfield players {PBT_MAE_GROUP['Outfield']:.1f}). The model finds only {RECALL_PCT:.0f}% of the midfielders who really reach the target style, "
+            "so a forecast below the target is a warning, not a rejection. Details: screen *6. Validation and limits*.", icon=":material/verified:")
     ids = {"New player (enter the values yourself)": NEW}
     ids.update({f"Case {cid} · Player {r.player_id} · {r.screening_status.capitalize()}": int(cid) for cid, r in cases.iterrows()
                 if cid in pc.index and pd.notna(pc.loc[cid].perf_forecast)})
@@ -903,28 +1018,37 @@ def whatif_perf():
         reset()
         st.session_state.pw_loaded = st.session_state.pw_label
 
+    with st.expander("Which inputs can I change, and which can't I?"):
+        st.markdown(DECISION_LEVERS)
+        st.dataframe(roles_table("KPI 2"), hide_index=True, width="stretch")
     inp, out = st.columns([1, 2.7], gap="large")
     with inp:
         st.selectbox("Start from", list(ids), key="pw_label")
         cid = ids[st.session_state.pw_label]
         base_in = recorded(cid)
-        st.number_input("Passes per 90, last season", 0.0, 150.0, step=1.0, format="%.1f", key="pw_passes")
+        st.number_input("Passes per 90, last season · fixed", 0.0, 150.0, step=1.0, format="%.1f", key="pw_passes")
         st.toggle("Player has an earlier season", key="pw_hist")
-        st.number_input("Passes per 90, season before", 0.0, 150.0, step=1.0, format="%.1f", key="pw_before",
+        st.number_input("Passes per 90, season before · fixed", 0.0, 150.0, step=1.0, format="%.1f", key="pw_before",
                         disabled=not st.session_state.pw_hist)
-        st.number_input("Carries per 90, last season", 0.0, 60.0, step=0.5, format="%.1f", key="pw_carries")
-        st.slider("Minutes played, last season", 0, 3420, step=30, key="pw_minutes")
-        st.slider("Age next season", 16.0, 36.0, step=0.1, format="%.1f", key="pw_age")
-        st.selectbox("Position", PM.POSITIONS, key="pw_pos")
+        st.number_input("Carries per 90, last season · fixed", 0.0, 60.0, step=0.5, format="%.1f", key="pw_carries")
+        st.slider("Minutes played, last season · external", 0, 3420, step=30, key="pw_minutes")
+        st.slider("Age next season · fixed", 16.0, 36.0, step=0.1, format="%.1f", key="pw_age")
+        st.selectbox("Position · fixed", PM.POSITIONS, key="pw_pos")
         st.button("Reset to the recorded values", on_click=reset, disabled=cid == NEW, key="pw_reset")
 
     s = st.session_state
     cur = {k: s[f"pw_{k}"] for k in base_in}
+    issues = IC.check_perf_inputs(cur["passes"], cur["before"], cur["hist"], cur["carries"], cur["minutes"], cur["age"], cur["pos"], REF,
+                                  (pm.age_min, pm.age_max))
+    if IC.verdict(issues) == "block":                      # impossible or contradictory inputs: no forecast
+        with out:
+            show_blocked(issues)
+        return
 
     def run(i):
         x = PM.row(i["passes"], i["before"], i["hist"], i["carries"], i["minutes"], i["age"], i["pos"])
         f = pm.predict_frame(x).iloc[0].to_dict()
-        f["p_target"] = pm.prob_at_least(f["forecast"], tgt)
+        f["p_target"] = pm.prob_at_least(f["forecast"], tgt, group=pm.group_of(i["pos"]))
         f["shap"], f["base"] = pm.shap_values(x)
         return f
 
@@ -933,14 +1057,25 @@ def whatif_perf():
     changed = cid != NEW and cur != base_in
 
     with out:
-        if now["extrapolated"]:
-            st.error(f"Age {cur['age']:.1f} is outside the training ages ({pm.age_min:.1f} to {pm.age_max:.1f}). Do not rely on this forecast.",
-                     icon=":material/error:")
+        verdict = IC.verdict(issues, bool(now["extrapolated"]))
+        show_issues(issues, verdict)
         k = st.columns(3)
         dlt = lambda key, fmt, small: (fmt(now[key] - base[key]) if changed and abs(now[key] - base[key]) >= small else None)
         k[0].metric("Forecast passes per 90", f"{now['forecast']:.1f}", dlt("forecast", lambda d: f"{d:+.1f}", 0.05))
         k[1].metric("80% prediction range", f"{now['lo80']:.1f} to {now['hi80']:.1f}")
         k[2].metric(f"Chance of reaching {tgt:.0f}", f"{100 * now['p_target']:.0f}%", dlt("p_target", lambda d: f"{100 * d:+.0f} pts", 0.005))
+
+        # ---- Week 11: baseline and scenario side by side (with an optional pinned second scenario)
+        ex_cur = {"reliability": VERDICT_WORD[verdict], "base": None}
+        if base:
+            b_issues = IC.check_perf_inputs(base_in["passes"], base_in["before"], base_in["hist"], base_in["carries"], base_in["minutes"],
+                                            base_in["age"], base_in["pos"], REF, (pm.age_min, pm.age_max))
+            ex_cur["base"] = {"reliability": VERDICT_WORD[IC.verdict(b_issues, bool(base["extrapolated"]))]}
+        st.markdown("**Baseline and scenario side by side**")
+        pin = pin_controls("pin_p", cid, year, f"saved {pd.Timestamp.now():%H:%M}", cur, now, ex_cur)
+        st.dataframe(perf_comparison(cur, base_in if base else None, slim(now), slim(base) if base else None, tgt, ex_cur, pinned=pin),
+                     hide_index=True, width="stretch")
+        st.caption("Differences are between two model predictions. They are not proven effects and not guaranteed outcomes.")
 
         rows = ([("Baseline (recorded)", base)] if changed else []) + [("What-if" if changed else "Baseline (recorded)" if cid != NEW else "Forecast", now)]
         fig = go.Figure()
@@ -964,7 +1099,9 @@ def whatif_perf():
             return {"Passes/90 last season": f"{i['passes']:.1f}", "Passes/90 season before": f"{i['before']:.1f}" if i["hist"] else "none",
                     "Carries/90": f"{i['carries']:.1f}", "Minutes": f"{i['minutes']:,}", "Age": f"{i['age']:.1f}", "Position": i["pos"]}
         player = "a new player" if cid == NEW else f"Player {cases.loc[cid].player_id} (case {cid})"
-        extras = {"p_target": now["p_target"], "base_p_target": base["p_target"] if base else None, "mae": PBT["mae"]}
+        extras = {"p_target": now["p_target"], "base_p_target": base["p_target"] if base else None, "mae": PBT["mae"],
+                  "mae_group": PBT_MAE_GROUP[pm.group_of(cur["pos"])], "recall_pct": RECALL_PCT, "verdict": verdict,
+                  "cautions": [i.message for i in issues if i.level == "caution"]}
         summary = perf_summary(player, p_inputs(cur), p_inputs(base_in) if cid != NEW else None, now, base, tgt, extras)
         scenario_box("KPI 2", player, summary, p_inputs(cur))
 
@@ -998,13 +1135,189 @@ def whatif_perf():
         st.caption("The orange line is the target style. Flat stretches are normal: a tree model predicts in steps.")
 
 
+def seg_val(name, segment, col):
+    t = D["w11"][name]
+    return float(t[t.segment == segment][col].iloc[0])
+
+
+S_TARGET = float(W11S["kpi2_target_passes"])
+
+
+# ====================================================================== screen 6: validation and limits (Week 11)
+def screen_validation():
+    w = D["w11"]
+    st.title("Validation and limits")
+    st.caption("Written for the Head of Recruitment: how far each forecast can be trusted, where it goes wrong, and what changed in Week 11. "
+               "Every number comes from forecasts checked against outcomes the model had not seen. The data is synthetic, so the figures show how the "
+               "method behaves, not how it would perform on real players.")
+
+    k1 = w["kpi1_baseline_comparison"].set_index("model")
+    m1, n1, w6 = k1.loc["Week 10 model (age curve + momentum)"], k1.loc["No change (value stays the same)"], k1.loc["Week 6 rule (fixed age adjustment)"]
+    k2 = w["kpi2_baseline_comparison"].set_index("model")
+    m2, n2, pa = k2.loc["Week 10 model (gradient boosting)"], k2.loc["No change (same as last season)"], k2.loc["Position average"]
+    hit = w["kpi1_price_hit_rate"].set_index("stated_confidence_pct").actual_value_at_or_above_price_pct
+    tr = w["kpi2_target_reach"]
+    trb, trn = (tr[(tr.method == m) & (tr.set == "backtest")].iloc[0] for m in ("Week 10 model", "No change (last season)"))
+    ba1, ba2 = w["kpi1_before_after_backtest"], w["kpi2_before_after_backtest"]
+    ext = ba1.iloc[0]
+
+    a, b = st.columns(2, gap="large")
+    with a:
+        with st.container(border=True):
+            st.subheader("KPI 1 · Market value next year")
+            st.markdown(
+                f"**Can I rely on it?** Yes for most players, with one clear exception.\n\n"
+                f"- A forecast is typically **{m1.backtest_typical_error_pct:.0f}%** away from the real value. Assuming no change is "
+                f"{n1.backtest_typical_error_pct:.0f}% away and the Week 6 rule {w6.backtest_typical_error_pct:.0f}%.\n"
+                f"- The 'pay no more than' prices held: the price marked 75% sure held for **{hit[75.0]:.0f}%** of players, the 90% price for **{hit[90.0]:.0f}%**.\n"
+                f"- Forecasts were more than 20% above the real value for {m1.backtest_overpay_risk_pct:.0f}% of players (the risk of overpaying).\n"
+                f"- **Exception:** players older than the oldest in the training data ({int(ext.players_older_than_training)} of {BT['players']:.0f}). Their typical error was "
+                f"{seg_val('kpi1_segments_backtest', 'Older than any development player', 'typical_abs_pct_error'):.0f}%. Do not rely on a forecast with the "
+                "'Do not rely' label.")
+    with b:
+        with st.container(border=True):
+            st.subheader("KPI 2 · Passes per 90 next season")
+            st.markdown(
+                f"**Can I rely on it?** As a rough guide, not as a verdict on one player.\n\n"
+                f"- A forecast is typically **{m2.backtest_mae:.1f} passes per 90** away. Assuming no change is {n2.backtest_mae:.1f} away and the position average {pa.backtest_mae:.1f}.\n"
+                f"- It explains **{100 * m2.backtest_r2:.0f}%** of the differences between players (no change: {100 * n2.backtest_r2:.0f}%).\n"
+                f"- Calling 'will reach the target style' was right for **{trb.correct_call_pct:.0f}%** of midfielders ({trn.correct_call_pct:.0f}% by assuming no change), "
+                f"but the model found only **{trb.of_real_fits_how_many_found_pct:.0f}%** of the midfielders who really reached the target. "
+                "**A forecast below the target does not rule a player out.**\n"
+                "- Goalkeepers are forecast most tightly; defenders and players aged 26 to 29 were under-forecast in 2025.")
+
+    t_design, t_base, t_fail, t_improve, t_missing = st.tabs(["How it was tested", "Against a simple baseline", "Where it fails", "What we improved", "What is still missing"])
+
+    with t_design:
+        st.markdown(
+            "**Time-ordered split.** Models were built on forecasts made in June 2023 and June 2024. They were then tested on forecasts made in June 2025, "
+            "whose outcomes (January 2026, season 2025) are now known. This matches how the tool is used: a forecast is always made before the outcome exists. "
+            "Inside the building period, models were compared by cross-validation split by player, so a player never helps predict himself.\n\n"
+            "**Building and testing are kept apart.** Choices (which model, which improvement) were made only on the building period, using rules written down in advance. "
+            "The 2025 test was run once per model version. One caution: the 2025 results were already visible in Week 10, so they are not a pristine test. "
+            "The first untouched test is the January 2027 outcome of the June 2026 forecasts.")
+        st.dataframe(w["split_design"].rename(columns={"kpi": "KPI", "part": "Part", "forecast_origins": "Forecasts made", "rows": "Rows", "players": "Players",
+                                                       "outcome_period": "Outcome", "age_range": "Ages"}), hide_index=True, width="stretch")
+        lk = w["leakage_checks"]
+        st.markdown(f"**Data-leakage checks: {(lk.result == 'PASS').sum()} passed, {(lk.result == 'WARN').sum()} finding, {(lk.result == 'FAIL').sum()} failed.** "
+                    "Each asks: would this predictor really have been known when the forecast is needed?")
+        st.dataframe(lk.rename(columns={"kpi": "KPI", "check": "Check", "result": "Result", "detail": "Detail"}), hide_index=True, width="stretch")
+
+    with t_base:
+        st.markdown("A model is only useful if it beats a rule you could apply in your head. Lower error is better; the last column is the model's gain over that "
+                    "baseline with a 95% interval (resampling whole players). An interval that stays above zero means the gain is not luck.")
+        st.subheader("KPI 1 · Market value")
+        t = w["kpi1_baseline_comparison"][["model", "cv_typical_error_pct", "backtest_typical_error_pct", "backtest_rmse_log", "backtest_within_20_pct",
+                                           "backtest_overpay_risk_pct", "backtest_rmse_gain_vs_this_baseline_ci95"]]
+        st.dataframe(t.rename(columns={"model": "Model or baseline", "cv_typical_error_pct": "Typical error %, building period",
+                                       "backtest_typical_error_pct": "Typical error %, 2025 test", "backtest_rmse_log": "RMSE (log), 2025 test",
+                                       "backtest_within_20_pct": "Within 20% of actual %", "backtest_overpay_risk_pct": "Forecast >20% too high %",
+                                       "backtest_rmse_gain_vs_this_baseline_ci95": "Model's RMSE gain, 95% interval"}).round(2), hide_index=True, width="stretch")
+        st.caption("RMSE (log) measures the typical size of the error in percentage terms; 0.28 is roughly a 28% typical swing, with large misses counted more.")
+        st.dataframe(w["kpi1_price_hit_rate"].rename(columns={"stated_confidence_pct": "Price marked this % sure", "actual_value_at_or_above_price_pct":
+                                                              "Share of players whose real value was at or above that price %", "players": "Players"}).round(1),
+                     hide_index=True, width="stretch")
+        st.subheader("KPI 2 · Passes per 90")
+        t = w["kpi2_baseline_comparison"][["model", "cv_mae", "backtest_mae", "backtest_rmse", "backtest_r2", "backtest_within_5_passes_pct",
+                                           "backtest_mae_gain_vs_this_baseline_ci95"]]
+        st.dataframe(t.rename(columns={"model": "Model or baseline", "cv_mae": "Typical error (passes/90), building period", "backtest_mae": "Typical error, 2025 test",
+                                       "backtest_rmse": "RMSE, 2025 test", "backtest_r2": "R²", "backtest_within_5_passes_pct": "Within 5 passes %",
+                                       "backtest_mae_gain_vs_this_baseline_ci95": "Model's error reduction, 95% interval"}).round(2), hide_index=True, width="stretch")
+        st.markdown(f"**Decision view: will a midfielder reach the need's target style ({S_TARGET:.0f} passes per 90)?**")
+        st.dataframe(tr.rename(columns={"method": "Method", "set": "Evaluated on", "midfielders": "Midfielders", "actually_reach_target": "Really reached it",
+                                        "correct_call_pct": "Correct call %", "of_players_called_fit_how_many_really_fit_pct": "Of those called a fit, really fit %",
+                                        "of_real_fits_how_many_found_pct": "Of real fits, found %"}).round(1), hide_index=True, width="stretch")
+        st.caption("Small groups (53 midfielders in the 2025 test, 13 who reached the target): read these percentages as rough.")
+        mc = w["kpi2_model_choice_cv"]
+        mine, top = mc[mc.is_week10_choice].iloc[0], mc.iloc[0]
+        st.markdown(f"**Is gradient boosting really the best KPI 2 model?** Under the version-independent folds used in Week 11 it ranks {int(mine['rank'])} of {len(mc)}; "
+                    f"the best is a {top.model.lower()}. But the gap ({mine.cv_rmse - top.cv_rmse:.2f} passes per 90, {100 * (mine.cv_rmse / top.cv_rmse - 1):.1f}%) is about the size of the run-to-run noise "
+                    f"({top.cv_rmse_sd_across_repeats:.2f}), so the Week 10 choice was kept under the pre-set rule (a change needs a 2% gain).")
+
+    with t_fail:
+        st.markdown("Where a model does worse than its average, a forecast for that kind of player deserves less weight. Rows with fewer than 20 players are marked small.")
+        c1, c2 = st.columns(2, gap="large")
+        with c1:
+            st.subheader("KPI 1 · Market value (2025 test)")
+            sg = w["kpi1_segments_backtest"][["segment_type", "segment", "n", "typical_abs_pct_error", "bias", "coverage_80_pct", "small_sample"]]
+            st.dataframe(sg.rename(columns={"segment_type": "Group by", "segment": "Segment", "n": "Players", "typical_abs_pct_error": "Typical error %",
+                                            "bias": "Bias (log; + = forecast too low)", "coverage_80_pct": "80% range held %", "small_sample": "Small"}).round(2),
+                         hide_index=True, width="stretch", height=430)
+            st.markdown("**What this means for you**")
+            st.markdown("- **Players older than the training ages:** the model has never seen them and forecast every one of them too low. The range is now widened: "
+                        f"it held for {ba1.iloc[1].coverage_80_older_than_training_pct:.0f}% of them, against {ext.coverage_80_older_than_training_pct:.0f}% before. That is better but still poor, "
+                        "so treat any forecast with the 'Do not rely' label as a guess.\n"
+                        "- **Low-value players** were forecast slightly too low and their range held less often. Inexpensive signings carry more surprise.\n"
+                        "- **Players without a valuation from a year ago** (only 9) have wider uncertainty; the tool already uses a wider range for them.")
+        with c2:
+            st.subheader("KPI 2 · Passes per 90 (2025 test)")
+            sg = w["kpi2_segments_backtest"][["segment_type", "segment", "n", "mae", "bias", "coverage_80_pct", "small_sample"]]
+            st.dataframe(sg.rename(columns={"segment_type": "Group by", "segment": "Segment", "n": "Players", "mae": "Typical error (passes/90)",
+                                            "bias": "Bias (forecast minus actual)", "coverage_80_pct": "80% range held %", "small_sample": "Small"}).round(2),
+                         hide_index=True, width="stretch", height=430)
+            st.markdown("**What this means for you**")
+            st.markdown("- **Defenders and players aged 26 to 29** were under-forecast in 2025 (about 4 to 6 passes per 90 too low). This did not appear in the building "
+                        "period. Defenders' average passing was about 4 passes per 90 higher in 2025 than in 2023 and 2024, a shift for one position that the model cannot see.\n"
+                        "- **High passers (over 50 per 90)** have the widest errors and their range held least often: the tool is least certain exactly where the target style sits.\n"
+                        "- **Goalkeepers** are forecast within about 5 passes per 90, so a goalkeeper forecast is more informative than an outfield one.")
+
+    with t_improve:
+        st.markdown("Each improvement was judged on the building period with a rule set in advance. An improvement that fails is reported, not hidden.")
+        for title, name in (("KPI 1 · Market value", "kpi1_improvements"), ("KPI 2 · Passes per 90", "kpi2_improvements")):
+            st.subheader(title)
+            imp = w[name][["attempt", "evidence_set", "metric", "week10", "revised", "wins_in_repeats", "rule", "decision", "note"]]
+            st.dataframe(imp.rename(columns={"attempt": "Attempt", "evidence_set": "Judged on", "metric": "Measure", "week10": "Week 10", "revised": "Revised",
+                                             "wins_in_repeats": "Better in repeats", "rule": "Rule set in advance", "decision": "Decision", "note": "Note"}),
+                         hide_index=True, width="stretch")
+        st.markdown("**Final comparison on the 2025 test, run once per version.**")
+        c1, c2 = st.columns(2, gap="large")
+        with c1:
+            st.markdown("*KPI 1: ranges for players older than the training ages*")
+            st.dataframe(ba1[["version", "coverage_80_all_pct", "coverage_80_older_than_training_pct", "coverage_95_older_than_training_pct",
+                              "median_80_range_width_pct_of_forecast_older"]].rename(columns={
+                "version": "Version", "coverage_80_all_pct": "80% range held, all %", "coverage_80_older_than_training_pct": "80% range held, older players %",
+                "coverage_95_older_than_training_pct": "95% range held, older players %", "median_80_range_width_pct_of_forecast_older": "Typical 80% range width, older players (% of forecast)"
+            }).round(1), hide_index=True, width="stretch")
+            st.caption("The central forecast and the typical error are unchanged. Widening helped but did not fix these cases: they were mostly forecast far too low, "
+                       "so the real fix is more data on older players.")
+        with c2:
+            st.markdown("*KPI 2: 80% range held, by position*")
+            fig = go.Figure()
+            pos = ["GK", "DEF", "MID", "FWD"]
+            for i, (name, colour) in enumerate(zip(ba2.version, (GREY, BLUE))):
+                fig.add_trace(go.Bar(x=pos, y=[ba2.iloc[i][f"coverage_80_{p}_pct"] for p in pos], name=["Week 10 (one pooled range)", "Week 11 (ranges by group)"][i],
+                                     marker=dict(color=colour, cornerradius=3), text=[f"{ba2.iloc[i][f'coverage_80_{p}_pct']:.0f}%" for p in pos],
+                                     textposition="outside", textfont=dict(color=INK2)))
+            fig.add_hline(y=80, line=dict(color=ORANGE, width=2))
+            style(fig, height=300, ytitle="Actual values inside the 80% range (%)")
+            fig.update_layout(barmode="group")
+            fig.update_yaxes(range=[0, 112])
+            fig.update_xaxes(showgrid=False)
+            show(fig)
+            st.caption("The orange line is the target (80%). Goalkeepers' ranges were far too wide and defenders' too narrow; the point forecasts are unchanged. "
+                       f"A goalkeeper's 80% range is now about {ba2.iloc[1].median_80_width_GK:.0f} passes wide, not {ba2.iloc[0].median_80_width_GK:.0f}.")
+
+    with t_missing:
+        st.markdown(
+            "- **Real data.** Everything here is synthetic. The effects are illustrative, and both models must be refitted on real valuations and event data.\n"
+            "- **Few old players.** Only 11 players in the 2025 test were older than the training ages, and only 53 players aged 30 or more in the building period. The age curve at the "
+            "oldest ages is the least certain part of KPI 1.\n"
+            "- **Short history.** Two forecast years for building and one for testing. Shifts that hit a whole position (such as the 2025 rise in defenders' passing) cannot be learned from so few years.\n"
+            "- **What each model leaves out.** KPI 1 ignores injuries, contract length, form and the buying club's reputation. KPI 2 ignores the new team's playing style, which is the biggest "
+            "driver of passing volume after a move.\n"
+            "- **The 2025 test is not pristine.** Its results were seen in Week 10. The June 2026 forecasts, scored in January 2027, are the first clean test.\n"
+            "- **No cost of being wrong.** Errors are counted in percentage or passes, not in the money a wrong bid would cost; a decision-based score would need the club's budget and alternatives.\n"
+            "- **Association, not cause.** Predictor effects describe patterns in past data. They do not show that changing an input would change the outcome.")
+
+
 # ====================================================================== navigation
 PAGE_CANDIDATES = st.Page(screen_candidates, title="1. Candidates", url_path="candidates", default=True)
 PAGE_KPIS = st.Page(screen_kpis, title="2. KPIs and models", url_path="kpis")
 PAGE_ACCURACY = st.Page(screen_accuracy, title="3. Forecast accuracy", url_path="forecast-accuracy")
 PAGE_EXPLAIN = st.Page(screen_explain, title="4. Explain a forecast", url_path="explain")
 PAGE_WHATIF = st.Page(screen_whatif, title="5. What-if analysis", url_path="what-if")
-page = st.navigation([PAGE_CANDIDATES, PAGE_KPIS, PAGE_ACCURACY, PAGE_EXPLAIN, PAGE_WHATIF])
+PAGE_VALIDATION = st.Page(screen_validation, title="6. Validation and limits", url_path="validation")
+page = st.navigation([PAGE_CANDIDATES, PAGE_KPIS, PAGE_ACCURACY, PAGE_EXPLAIN, PAGE_WHATIF, PAGE_VALIDATION])
 st.sidebar.markdown("### Football recruitment decision support")
 NEED = need_picker()
 page.run()

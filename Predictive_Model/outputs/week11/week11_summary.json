@@ -1,0 +1,360 @@
+{
+ "environment": {
+  "python": "3.12.3",
+  "scikit_learn": "1.8.0",
+  "numpy": "2.4.4",
+  "pandas": "3.0.2"
+ },
+ "kpi1_baseline": [
+  {
+   "model": "No change (value stays the same)",
+   "cv_rmse_log": 0.417,
+   "cv_typical_error_pct": 20.9537,
+   "cv_within_20_pct": 47.7273,
+   "cv_bias_log": 0.049,
+   "cv_overpay_risk_pct": 25.2841,
+   "backtest_rmse_log": 0.4878,
+   "backtest_typical_error_pct": 28.6093,
+   "backtest_within_20_pct": 38.9744,
+   "backtest_bias_log": 0.0458,
+   "backtest_overpay_risk_pct": 28.7179,
+   "backtest_rmse_gain_vs_this_baseline_ci95": "0.211 (0.134 to 0.289)",
+   "cv_coverage_80_pct": NaN,
+   "backtest_coverage_80_pct": NaN
+  },
+  {
+   "model": "Week 6 rule (fixed age adjustment)",
+   "cv_rmse_log": 0.3756,
+   "cv_typical_error_pct": 17.7768,
+   "cv_within_20_pct": 53.125,
+   "cv_bias_log": 0.0363,
+   "cv_overpay_risk_pct": 23.5795,
+   "backtest_rmse_log": 0.4376,
+   "backtest_typical_error_pct": 22.5822,
+   "backtest_within_20_pct": 41.5385,
+   "backtest_bias_log": 0.042,
+   "backtest_overpay_risk_pct": 27.6923,
+   "backtest_rmse_gain_vs_this_baseline_ci95": "0.161 (0.087 to 0.237)",
+   "cv_coverage_80_pct": NaN,
+   "backtest_coverage_80_pct": NaN
+  },
+  {
+   "model": "Week 10 model (age curve + momentum)",
+   "cv_rmse_log": 0.2121,
+   "cv_typical_error_pct": 12.6658,
+   "cv_within_20_pct": 69.8864,
+   "cv_bias_log": -0.0018,
+   "cv_overpay_risk_pct": 16.4773,
+   "backtest_rmse_log": 0.2767,
+   "backtest_typical_error_pct": 12.0591,
+   "backtest_within_20_pct": 72.3077,
+   "backtest_bias_log": 0.0574,
+   "backtest_overpay_risk_pct": 11.7949,
+   "backtest_rmse_gain_vs_this_baseline_ci95": "",
+   "cv_coverage_80_pct": 79.8295,
+   "backtest_coverage_80_pct": 80.0
+  }
+ ],
+ "kpi1_price_hit_rate": [
+  {
+   "stated_confidence_pct": 50.0,
+   "actual_value_at_or_above_price_pct": 54.35897435897436,
+   "players": 195
+  },
+  {
+   "stated_confidence_pct": 75.0,
+   "actual_value_at_or_above_price_pct": 82.05128205128204,
+   "players": 195
+  },
+  {
+   "stated_confidence_pct": 90.0,
+   "actual_value_at_or_above_price_pct": 93.84615384615384,
+   "players": 195
+  }
+ ],
+ "kpi1_attempt_A_info_only_backtest": {
+  "rmse_log": 0.26017192125923955,
+  "typical_error_pct": 12.10737948658116,
+  "within_20_pct": 71.28205128205128,
+  "bias_log": 0.04924332345972569,
+  "overpay_risk_pct": 12.307692307692308
+ },
+ "kpi1_before_after": [
+  {
+   "version": "Week 10 model",
+   "coverage_80_all_pct": 80.0,
+   "coverage_80_older_than_training_pct": 0.0,
+   "coverage_80_age_seen_pct": 84.783,
+   "coverage_95_all_pct": 91.795,
+   "coverage_95_older_than_training_pct": 18.182,
+   "coverage_95_age_seen_pct": 96.196,
+   "median_80_range_width_pct_of_forecast_age_seen": 50.66,
+   "median_80_range_width_pct_of_forecast_older": 56.347,
+   "mean_80_interval_score_older": 1034783.859,
+   "typical_error_pct": 12.059,
+   "rmse_log": 0.277,
+   "players_older_than_training": 11
+  },
+  {
+   "version": "Week 11 retained model (point forecast unchanged, wider range outside trained ages)",
+   "coverage_80_all_pct": 82.051,
+   "coverage_80_older_than_training_pct": 36.364,
+   "coverage_80_age_seen_pct": 84.783,
+   "coverage_95_all_pct": 93.846,
+   "coverage_95_older_than_training_pct": 54.545,
+   "coverage_95_age_seen_pct": 96.196,
+   "median_80_range_width_pct_of_forecast_age_seen": 50.66,
+   "median_80_range_width_pct_of_forecast_older": 130.826,
+   "mean_80_interval_score_older": 810638.564,
+   "typical_error_pct": 12.059,
+   "rmse_log": 0.277,
+   "players_older_than_training": 11
+  }
+ ],
+ "kpi1_improvements": [
+  {
+   "attempt": "A. Pool the oldest part of the age curve into one straight line",
+   "reason": "Backtest errors were concentrated in players older than the training ages, where a free point per year is estimated from one or two players",
+   "evidence_set": "development cross-validation",
+   "metric": "CV RMSE (log)",
+   "week10": 0.2121,
+   "revised": 0.2122,
+   "relative_gain_pct": -0.0305,
+   "wins_in_repeats": "1 of 3",
+   "rule": "gain >= 2% and wins >= 2 of 3",
+   "decision": "REJECT",
+   "note": "best tail start tested: age 31"
+  },
+  {
+   "attempt": "B. Widen the prediction range for players older than anyone in the training data",
+   "reason": "In the backtest all 11 players older than the training ages fell outside their 80% range",
+   "evidence_set": "development stress test (169 rows, 43 players)",
+   "metric": "RMS of error / standard error (1.0 = honest range)",
+   "week10": 2.2129,
+   "revised": 1.0,
+   "relative_gain_pct": NaN,
+   "wins_in_repeats": "",
+   "rule": "factor > 1.5",
+   "decision": "ADOPT",
+   "note": "stress test says ranges are 2.2x too narrow outside the trained ages (95% CI 1.8 to 2.6); in-range value is 1.01. Factor applied: 2.21. After applying it the stress-test value is 1.0 by construction, so the independent check is the one-off backtest"
+  }
+ ],
+ "kpi1_settings": {
+  "extrap_inflation_backtest_model": 2.21,
+  "extrap_inflation_final_model": 2.61,
+  "stress_test": {
+   "dev_factor": 2.2129168204635508,
+   "dev_ci95": [
+    1.7502688859553637,
+    2.611319549667244
+   ],
+   "dev_rows": 169,
+   "dev_players": 43,
+   "dev_plus_backtest_factor": 2.609994611389277,
+   "dev_plus_backtest_ci95": [
+    2.3044116798717615,
+    2.8555420331397063
+   ],
+   "in_range_rms": 1.0104755710356128
+  }
+ },
+ "kpi2_model_choice": {
+  "week10_choice": "Gradient boosting {'max_depth': 2, 'n_estimators': 200}",
+  "week10_rank_under_week11_folds": 4,
+  "best_under_week11_folds": "Random forest {\"min_samples_leaf\": 5, \"max_features\": 0.6}",
+  "best_rmse": 12.21658989951105,
+  "week10_choice_rmse": 12.316134834039064,
+  "fold_noise_sd": 0.1095794031652003
+ },
+ "kpi2_baseline": [
+  {
+   "model": "No change (same as last season)",
+   "cv_mae": 10.1908,
+   "cv_rmse": 14.6566,
+   "cv_r2": 0.0998,
+   "cv_within_5_passes_pct": 38.024,
+   "cv_bias": -1.1919,
+   "backtest_mae": 12.2876,
+   "backtest_rmse": 17.2707,
+   "backtest_r2": 0.0853,
+   "backtest_within_5_passes_pct": 32.0856,
+   "backtest_bias": -1.406,
+   "backtest_mae_gain_vs_this_baseline_ci95": "3.01 (1.81 to 4.26)",
+   "backtest_coverage_80_pct": NaN
+  },
+  {
+   "model": "Position average",
+   "cv_mae": 10.1065,
+   "cv_rmse": 13.5245,
+   "cv_r2": 0.2335,
+   "cv_within_5_passes_pct": 32.9341,
+   "cv_bias": 0.0,
+   "backtest_mae": 11.574,
+   "backtest_rmse": 15.9811,
+   "backtest_r2": 0.2168,
+   "backtest_within_5_passes_pct": 28.877,
+   "backtest_bias": -0.4177,
+   "backtest_mae_gain_vs_this_baseline_ci95": "2.30 (1.37 to 3.22)",
+   "backtest_coverage_80_pct": NaN
+  },
+  {
+   "model": "Week 10 model (gradient boosting)",
+   "cv_mae": 8.6672,
+   "cv_rmse": 12.3165,
+   "cv_r2": 0.3643,
+   "cv_within_5_passes_pct": 41.517,
+   "cv_bias": -0.0672,
+   "backtest_mae": 9.2756,
+   "backtest_rmse": 13.4792,
+   "backtest_r2": 0.4428,
+   "backtest_within_5_passes_pct": 39.5722,
+   "backtest_bias": -0.7928,
+   "backtest_mae_gain_vs_this_baseline_ci95": "",
+   "backtest_coverage_80_pct": 79.1444
+  }
+ ],
+ "kpi2_target_reach": [
+  {
+   "method": "Week 10 model",
+   "set": "development CV",
+   "midfielders": 98,
+   "actually_reach_target": 25,
+   "correct_call_pct": 73.47,
+   "of_players_called_fit_how_many_really_fit_pct": 46.67,
+   "of_real_fits_how_many_found_pct": 28.0
+  },
+  {
+   "method": "Week 10 model",
+   "set": "backtest",
+   "midfielders": 53,
+   "actually_reach_target": 13,
+   "correct_call_pct": 77.36,
+   "of_players_called_fit_how_many_really_fit_pct": 60.0,
+   "of_real_fits_how_many_found_pct": 23.08
+  },
+  {
+   "method": "No change (last season)",
+   "set": "development CV",
+   "midfielders": 98,
+   "actually_reach_target": 25,
+   "correct_call_pct": 69.39,
+   "of_players_called_fit_how_many_really_fit_pct": 39.13,
+   "of_real_fits_how_many_found_pct": 36.0
+  },
+  {
+   "method": "No change (last season)",
+   "set": "backtest",
+   "midfielders": 53,
+   "actually_reach_target": 13,
+   "correct_call_pct": 71.7,
+   "of_players_called_fit_how_many_really_fit_pct": 42.86,
+   "of_real_fits_how_many_found_pct": 46.15
+  }
+ ],
+ "kpi2_target_passes": 54.3,
+ "kpi2_carries_imputation_check": {
+  "backtest_rmse_all_row_medians": 13.479164259175272,
+  "backtest_rmse_development_only_medians": 13.4781610797632,
+  "difference": -0.0010031794120717308
+ },
+ "kpi2_before_after": [
+  {
+   "version": "Week 10 model (one pooled range)",
+   "coverage_80_all_pct": 79.144,
+   "coverage_80_GK_pct": 97.674,
+   "coverage_80_DEF_pct": 65.957,
+   "coverage_80_MID_pct": 77.358,
+   "coverage_80_FWD_pct": 77.273,
+   "coverage_95_all_pct": 93.048,
+   "coverage_95_GK_pct": 100.0,
+   "coverage_95_DEF_pct": 87.234,
+   "coverage_95_MID_pct": 90.566,
+   "coverage_95_FWD_pct": 95.455,
+   "median_80_width_GK": 26.783,
+   "median_80_width_outfield": 26.783,
+   "mean_80_interval_score": 48.907,
+   "mae": 9.276
+  },
+  {
+   "version": "Week 11 retained model (ranges by group, same point forecast)",
+   "coverage_80_all_pct": 80.749,
+   "coverage_80_GK_pct": 83.721,
+   "coverage_80_DEF_pct": 74.468,
+   "coverage_80_MID_pct": 83.019,
+   "coverage_80_FWD_pct": 81.818,
+   "coverage_95_all_pct": 93.583,
+   "coverage_95_GK_pct": 90.698,
+   "coverage_95_DEF_pct": 89.362,
+   "coverage_95_MID_pct": 94.34,
+   "coverage_95_FWD_pct": 100.0,
+   "median_80_width_GK": 13.592,
+   "median_80_width_outfield": 31.131,
+   "mean_80_interval_score": 47.024,
+   "mae": 9.276
+  }
+ ],
+ "kpi2_improvements": [
+  {
+   "attempt": "A. Separate 80%/95% prediction ranges for goalkeepers and outfield players",
+   "reason": "Development error SD is about half for goalkeepers (6.7) vs outfield players (13.4), but one pooled error distribution sets every range",
+   "evidence_set": "development, cross-fitted by player halves (60 repeats)",
+   "metric": "worst gap of 80% coverage from 80 (points); mean 80% interval score",
+   "week10": "gap 16.7; score 38.8",
+   "revised": "gap 1.0; score 35.2",
+   "relative_gain_pct": 9.346,
+   "wins_in_repeats": "",
+   "rule": "gap smaller AND score lower",
+   "decision": "ADOPT",
+   "note": "point forecast is unchanged"
+  },
+  {
+   "attempt": "B. Add two predictors: change since the season before and passes relative to the position average",
+   "reason": "Passing level and its trend are the strongest signals; the model might use them better in engineered form",
+   "evidence_set": "development cross-validation",
+   "metric": "CV RMSE (passes per 90)",
+   "week10": 12.316134834039064,
+   "revised": 12.325266769722708,
+   "relative_gain_pct": -0.0741,
+   "wins_in_repeats": "2 of 3",
+   "rule": "gain >= 2% and wins >= 2 of 3",
+   "decision": "REJECT",
+   "note": ""
+  },
+  {
+   "attempt": "C1. Simpler model settings (gradient boosting, depth 1, 300 trees)",
+   "reason": "Small data (334 rows): a simpler model may generalise better",
+   "evidence_set": "development cross-validation",
+   "metric": "CV RMSE (passes per 90)",
+   "week10": 12.316134834039064,
+   "revised": 12.172489798729472,
+   "relative_gain_pct": 1.1663,
+   "wins_in_repeats": "3 of 3",
+   "rule": "gain >= 2% and wins >= 2 of 3",
+   "decision": "REJECT",
+   "note": ""
+  },
+  {
+   "attempt": "C2. Predict the change from last season instead of the level",
+   "reason": "Mean reversion may be easier to learn as a change",
+   "evidence_set": "development cross-validation",
+   "metric": "CV RMSE (passes per 90)",
+   "week10": 12.316134834039064,
+   "revised": 12.51249481564443,
+   "relative_gain_pct": -1.5943,
+   "wins_in_repeats": "0 of 3",
+   "rule": "gain >= 2% and wins >= 2 of 3",
+   "decision": "REJECT",
+   "note": ""
+  }
+ ],
+ "decisions": {
+  "kpi1": {
+   "retained_point_forecast": "Week 10 age-curve model",
+   "range_change_adopted": true
+  },
+  "kpi2": {
+   "retained_point_forecast": "Week 10 Gradient boosting",
+   "range_change_adopted": true
+  }
+ }
+}

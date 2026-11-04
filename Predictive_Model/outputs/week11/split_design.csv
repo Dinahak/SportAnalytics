@@ -1,0 +1,7 @@
+kpi,part,forecast_origins,rows,players,outcome_period,age_range
+KPI 1 Market value,"Development (model choice, improvements)","21 Jun 2023, 21 Jun 2024",352,186,"Jan 2024, Jan 2025",16.5 to 32.9
+KPI 1 Market value,"Backtest (final evaluation, run once)",21 Jun 2025,195,195,Jan 2026,16.8 to 33.9
+KPI 1 Market value,Live (not scorable yet),21 Jun 2026,200,200,Jan 2027 (unknown),17.1 to 34.9
+KPI 2 Passes per 90,"Development (model choice, improvements)","seasons 2023, 2024 (June runs)",334,175,"seasons 2023, 2024",17.0 to 33.0
+KPI 2 Passes per 90,"Backtest (final evaluation, run once)",season 2025 (June 2025 run),187,187,season 2025,17.1 to 34.0
+KPI 2 Passes per 90,Live (not scorable yet),season 2026 (June 2026 run),198,198,season 2026 (unknown),17.2 to 35.0

@@ -1,0 +1,4 @@
+model,cv_mae,cv_rmse,cv_r2,cv_within_5_passes_pct,cv_bias,backtest_mae,backtest_rmse,backtest_r2,backtest_within_5_passes_pct,backtest_bias,backtest_mae_gain_vs_this_baseline_ci95,backtest_coverage_80_pct
+No change (same as last season),10.1908,14.6566,0.0998,38.024,-1.1919,12.2876,17.2707,0.0853,32.0856,-1.406,3.01 (1.81 to 4.26),
+Position average,10.1065,13.5245,0.2335,32.9341,0.0,11.574,15.9811,0.2168,28.877,-0.4177,2.30 (1.37 to 3.22),
+Week 10 model (gradient boosting),8.6672,12.3165,0.3643,41.517,-0.0672,9.2756,13.4792,0.4428,39.5722,-0.7928,,79.1444

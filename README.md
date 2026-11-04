@@ -1,99 +1,80 @@
-# Synthetic Recruitment Database (draft v0.1)
+# SportAnalytics
 
-**Organization:** mid-table club in a top European league
-**Decision-maker:** Head of Recruitment
-**Decision:** For each squad need in a transfer window, which player do we pursue, and at what maximum fee and wage? Or do we not sign at all?
+Football recruitment decision-support tool. It helps a club's Head of Recruitment decide whether to bid for a player and up to what price, using two predictive KPIs:
 
-## 1. Empirical base: StatsBomb Open Data
+| KPI | What it predicts | Model |
+|---|---|---|
+| 1 · Market value | Player's market value at the next yearly valuation | Log-scale regression with an age curve |
+| 2 · Passes per 90 | Player's passes per 90 minutes next season | Gradient boosting (explained with SHAP) |
 
-Checked all 80 competition-seasons in the repo (commit `4b73468`, Sep 2026).
-Only four are complete domestic league seasons for men:
+The app shows each model's accuracy and limits, overall predictor importance, per-player contributions, and a what-if tool with input checks, a baseline-versus-scenario table, automatic summaries and a downloadable scenario log.
 
-| League | Season | Matches | Teams | Used |
-|---|---|---|---|---|
-| Premier League | 2015/16 | 380 | 20 | Yes |
-| La Liga | 2015/16 | 380 | 20 | Yes |
-| Serie A | 2015/16 | 380 | 20 | Yes |
-| Ligue 1 | 2015/16 | 377 | 20 | Yes (3 matches missing upstream) |
-| 1. Bundesliga | 2015/16 | 34 | 18 | No. Leverkusen matches only |
-| La Liga | 2004/05 to 2020/21 | 7 to 38 each | | No. Barcelona matches only |
+**Status:** Week 11 (validation and usefulness). The Week 10 submission is preserved: git tag `week10-submission` and `docs/week10/`.
 
-Other full sets (WSL, NWSL, Liga F, World Cups, Euros) are usable later as extra "markets".
+## Setup
 
-Sanity checks passed: Suárez 40 goals, Higuaín 36, Ronaldo 35, Kane 25.
-Leicester champions on 81 points. Each team logs about 1,032 player-minutes per match (11 × ~94).
+Requires **Python 3.10 or newer**.
 
-## 2. Pipeline
-
-```
-pipeline/01_fetch_statsbomb.py    download 1,517 matches (events + lineups, ~4.3 GB)
-pipeline/02_profile_statsbomb.py  events -> player_match, player_season, team_season, calibration.json
-schema/schema.sql                 27 tables + 1 view, runs on SQLite and PostgreSQL
-calibration/                      outputs of step 2 (aggregates only)
+```bash
+git clone https://github.com/MaurineTanui/SportAnalytics.git
+cd SportAnalytics/Predictive_Model
+pip install -r requirements.txt
+streamlit run app/app.py
 ```
 
-Run: `python 01_fetch_statsbomb.py --out ../raw` then `python 02_profile_statsbomb.py`. Takes about 35 seconds on 2 cores.
+The app opens at http://localhost:8501. All model outputs are already in the repo, so you can run it right away.
 
-`calibration.json` holds what the generator samples from:
-- per-90 quantiles, means and SDs for about 50 metrics, by position group (GK, CB, FB, DM, CM, AM, W, ST), for players with 900+ minutes
-- Spearman correlations between 11 core metrics per position group, so synthetic players have realistic profiles (a striker with high npxG also tends to win aerials, and so on)
-- league medians, squad-size and minutes-share distributions, nationality mix per league, team strength (points, xG, xGA)
+Rebuild everything from the raw data (steps 01-10 took about 2 minutes in Week 10 and step 11 about 1.5; steps 01-10 need statsmodels and shap, step 11 needs only pandas, numpy, scipy and scikit-learn):
 
-**License note:** StatsBomb data is non-commercial, no redistribution. The `calibration/` CSVs contain real player names. Keep them out of the shared database. The final database holds only synthetic players sampled from these distributions.
-
-## 3. Schema
-
-```mermaid
-erDiagram
-    league ||--o{ club : has
-    club ||--o{ contract : employs
-    player ||--o{ contract : signs
-    player ||--o{ player_match_stats : plays
-    match ||--o{ player_match_stats : records
-    player ||--o{ market_value_snapshot : valued
-    player ||--o{ injury : suffers
-    agent ||--o{ player : represents
-    club ||--o{ staff : employs
-    club ||--o{ transfer_window : operates
-    transfer_window ||--o{ squad_need : raises
-    squad_need ||--o{ need_metric_weight : defines
-    squad_need ||--o{ screen_run : triggers
-    screen_run ||--o{ screen_result : returns
-    squad_need ||--o{ scouting_assignment : assigns
-    scouting_assignment ||--o{ scout_report : produces
-    squad_need ||--o{ shortlist_entry : "alternatives"
-    squad_need ||--o{ valuation : prices
-    squad_need ||--|| recruitment_decision : "resolved by"
-    recruitment_decision ||--o{ negotiation_event : negotiates
-    recruitment_decision ||--o| transfer : executes
-    transfer ||--o{ signing_outcome : evaluated
+```bash
+cd Predictive_Model
+python code/run_all.py            # steps 01-11
+python code/11_evaluate_models.py # only the Week 11 evaluation
+python -m unittest discover tests -v   # 14 tests
 ```
 
-How the brief maps to the tables:
+**Dependencies:** `Predictive_Model/requirements.txt` (streamlit, pandas, numpy, plotly, scipy, scikit-learn, statsmodels, shap). The Week 11 evaluation was run with Python 3.12, scikit-learn 1.8, numpy 2.4, pandas 3.0, scipy 1.17. Its folds do not depend on the scikit-learn version, but tree-model numbers can differ in the last digits across versions.
 
-| Brief element | Tables |
-|---|---|
-| Decision role | `staff` (role = head_of_recruitment), `recruitment_decision.decided_by` |
-| Place in workflow | need → screen → scout → shortlist → value → decide → negotiate → transfer → outcome |
-| Cases | `squad_need` |
-| Entities | `player`, `club`, `agent`, `staff` |
-| Events | `match`, `player_match_stats`, `injury`, `negotiation_event`, `transfer` |
-| Resources and constraints | `transfer_window` (budgets, squad size, non-EU, homegrown), `squad_need` (fee, wage, age caps) |
-| Information | `player_season_profile`, `scout_report`, `screen_result`, `market_value_snapshot` |
-| Alternatives | `shortlist_entry`, `valuation` |
-| Outcomes | `recruitment_decision`, `transfer`, `signing_outcome` |
+## Repository layout
 
-**Hidden ground truth.** `player.latent_ability`, `player.latent_potential`, `staff.rating_bias` and `staff.rating_noise_sd` are the generator's truth. The tool must never read them. They drive stats, scout ratings and post-signing outcomes, so the validation suite can test whether the tool picks players who actually turn out well.
+```
+Predictive_Model/
+  app/app.py              Streamlit application (6 screens)
+  code/                   Pipeline steps 01-11 and model code
+    value_model.py        KPI 1 model
+    performance_model.py  KPI 2 model
+    explain.py            Importance, contributions, roles, comparison tables, summaries
+    input_checks.py       Week 11: plausible ranges, constraints, block / caution rules
+    evaluation_utils.py   Week 11: deterministic folds, bootstrap, interval score
+    11_evaluate_models.py Week 11: leakage checks, baselines, error analysis, improvements
+  tests/test_week11.py    Unit tests
+  data/raw/               Week 5 synthetic data (unchanged)
+  data/final/             Cleaned tables the app reads
+  data/model/             Model files, training tables, forecasts, week11_settings.json
+  data/withheld/          Simulated outcomes held back for validation
+  outputs/                Model comparison, backtests, validation results
+  outputs/week11/         Week 11 evaluation tables and summary
+statbomb_data/            Scripts and docs used to calibrate the synthetic data
+docs/                     Reports, user test, contributions, video outline
+  week10/                 Preserved copies of the Week 10 submission
+```
 
-## 4. Open questions for the team
+## Data and access
 
-1. **Focal club and league.** Which league do we sit in? This sets budget scale and the strength coefficient.
-2. **Time span.** Suggest 3 fictional seasons: two seasons of history to scout from, one season to observe outcomes.
-3. **Market size.** Suggest the four calibrated leagues (80 clubs, about 2,300 players) plus one or two lower-strength leagues as "value markets".
-4. **Valuation calibration.** StatsBomb has no fees or wages. We need published ranges (e.g. CIES Football Observatory, UEFA benchmarking reports) to set fee and wage distributions by age, position and league.
-5. **Granularity.** Player-match level stats (about 100k rows per season) or player-season only? Match level supports form and consistency features. Season level is simpler.
+| Data | Shared? | How to get it |
+|---|---|---|
+| All synthetic tables in `Predictive_Model/data/` (raw, final, model, withheld) | **Yes, included in full** | In this repo. No real players or clubs. |
+| StatsBomb Open Data (used only to calibrate the synthetic data) | No: its user agreement forbids redistribution | `python statbomb_data/01_fetch_statsbomb.py --out <folder>`; see `statbomb_data/LICENSE.pdf` |
+| Transfermarkt market values (`transfermkt_data/`, git-ignored) | No: Transfermarkt's terms of use | Authorized users can request the files from the group. Nothing in the app or the evaluation needs them. |
 
-## 5. Next steps
+## Deliverables
 
-- `generator/`: seeded generator that samples players from `calibration.json` via a Gaussian copula, simulates seasons, then runs the recruitment workflow.
-- `validation/`: checks for referential integrity, business rules (budget never exceeded, one decision per need), and distribution fidelity (KS tests vs StatsBomb quantiles).
+**Week 11**
+- Evaluation report: [`docs/WEEK11_EVALUATION_REPORT.md`](docs/WEEK11_EVALUATION_REPORT.md)
+- User test: [`docs/USER_TEST_PROTOCOL.md`](docs/USER_TEST_PROTOCOL.md), [`docs/USER_TEST_RESULTS.md`](docs/USER_TEST_RESULTS.md)
+- What changed: [`docs/CHANGELOG_WEEK11.md`](docs/CHANGELOG_WEEK11.md)
+- Checklist: [`docs/WEEK11_SUBMISSION_CHECKLIST.md`](docs/WEEK11_SUBMISSION_CHECKLIST.md) · Laptop setup: [`docs/SETUP_ON_YOUR_LAPTOP.md`](docs/SETUP_ON_YOUR_LAPTOP.md)
+- Contributions: [`docs/CONTRIBUTIONS.md`](docs/CONTRIBUTIONS.md)
+- Demo video (7 min): [Google Drive](https://drive.google.com/file/d/1QuvtjTGiOWjX4mo5katx3btp5831MB9x/view?usp=drive_link); outline in [`docs/VIDEO_SCRIPT_WEEK11.md`](docs/VIDEO_SCRIPT_WEEK11.md)
+
+**Week 10 (preserved)**: [`docs/week10/`](docs/week10/) and git tag `week10-submission`.

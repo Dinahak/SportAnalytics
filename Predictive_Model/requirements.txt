@@ -1,3 +1,4 @@
+# App and steps 01-10 need everything below. Step 11 and tests/ need only pandas, numpy, scipy, scikit-learn.
 streamlit>=1.50
 pandas>=2.2
 numpy>=1.26
