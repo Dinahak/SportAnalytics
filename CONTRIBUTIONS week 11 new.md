@@ -3,7 +3,7 @@
 ## Week 11 (updated)
 
 > **EXAMPLE — based on the Week 10 role pattern, not a confirmed record.**
-> Dina's, Maurine's, and the shared rows below are illustrative parallels to Week 10. Only Tarun's row is confirmed. Confirm the other rows with Dina and Maurine before submitting.
+> Dina's, Maurine's, and the shared rows below are illustrative parallels to Week 10. Only Tarun's row is confirmed.
 
 | Member | Week 11 contributions |
 |---|---|
