@@ -1,0 +1,9 @@
+# App and steps 01-10 need everything below. Step 11 and tests/ need only pandas, numpy, scipy, scikit-learn.
+streamlit>=1.50
+pandas>=2.2
+numpy>=1.26
+plotly>=5.24
+scipy>=1.13
+scikit-learn>=1.5
+statsmodels>=0.14
+shap>=0.46
